@@ -128,8 +128,6 @@ vmod_v4_getSignature(VRT_CTX,
 	char key[len];
 	char *kp = key;
 	sprintf(kp,"AWS4%s",secret_key);
-	fprintf(stderr, "date: %s\nregion: %s\nservice: %s\nsigning payload:\n####\n%s\n####\n", 
-		dateStamp, regionName, serviceName, string_to_sign);
 	
 	const char *kDate    = vmod_hmac_sha256(ctx,kp,strlen(kp), dateStamp,strlen(dateStamp),true);
 	const char *kRegion  = vmod_hmac_sha256(ctx,kDate,   32, regionName,strlen(regionName),true);
@@ -177,8 +175,6 @@ void vmod_v4_generic(VRT_CTX,
 	struct http *hp;
 	struct gethdr_s gs;
 
-	fprintf(stderr, "\n\n\n#################### START V4_GENERIC ####################\n\n");
-	
 	if (ctx->http_bereq !=NULL && ctx->http_bereq->magic== HTTP_MAGIC){
 		//bg-thread
 		hp = ctx->http_bereq;
@@ -190,7 +186,6 @@ void vmod_v4_generic(VRT_CTX,
 	}
 	method= hp->hd[HTTP_HDR_METHOD].b;
 	requrl= hp->hd[HTTP_HDR_URL].b;
-	fprintf(stderr, "Request URL: %s\n", requrl);
 
 	////////////////
 	//create date
@@ -236,7 +231,6 @@ void vmod_v4_generic(VRT_CTX,
 	
 	////////////////
 	//create canonical headers
-	fprintf(stderr, "canonical headers:\n####\n%s\n####\n", canonical_headers);
 	len = strlen(canonical_headers) + 115;
 	// Account for addition of "x-amz-security-token:[token]\n"
 	if(tokenlen > 0) len += 22 + tokenlen;
@@ -246,7 +240,6 @@ void vmod_v4_generic(VRT_CTX,
 	} else {
 		sprintf(pcanonical_headers,"%sx-amz-content-sha256:%s\nx-amz-date:%s\n",canonical_headers,payload_hash,amzdate);
 	}
-	fprintf(stderr, "pcanonical-headers:\n####\n%s\n####\n", pcanonical_headers);
 	
 	////////////////
 	//create credential scope
@@ -284,7 +277,6 @@ void vmod_v4_generic(VRT_CTX,
 			payload_hash
 		);
 	}
-	fprintf(stderr,"canonical_request:\n####\n%s\n####\n", pcanonical_request);
 	
 	
 	////////////////
@@ -308,7 +300,6 @@ void vmod_v4_generic(VRT_CTX,
 		psigned_headers,
 		signature);
 	
-	fprintf(stderr,"Authorization:\n####\n%s\n####\n", pauthorization);
 	////////////////
 	//Set to header
 	gs.what = "\016Authorization:";
