@@ -68,6 +68,58 @@ vmod_hmac_sha256(VRT_CTX,
 	return p;
 }
 
+char *
+format_param_string(VRT_CTX, char *param)
+{
+	// AWS expexts an equal sign for all parameters, whether they have a value
+	// set or not.  Some clients skip the = sign (eg, s3cmd) and it needs to be
+	// added in to get the signatures to work.
+
+	if (!param) return NULL;
+
+	// check the balance of equals vs. ampersands+question marks:
+	int eq = 0, amp = 0;
+	char *p = param;
+	int len = 0;
+
+	for (; *p; p++,len++) {
+		switch (*p) {
+			case '=':
+				eq++; break;
+			case '&': case '?':
+				amp++; break;
+		}
+	}
+
+	if (len <= 1) return param;
+
+	int newlen = len + (amp - eq);
+
+	if (newlen == len) return param;
+
+	char *newparam = WS_Alloc(ctx->ws,newlen+1);
+	AN(newparam);
+	char *np;
+
+	for (eq = 0, p = param, np = newparam; 1; p++, np++) {
+		if (*p == '&') {
+			if (eq)
+				eq = 0;
+			else
+				*np++ = '=';
+		} else if (*p == '=') {
+			eq++;
+		} else if (!*p) {
+			if (!eq) *np++ = '=';
+			*np = *p;
+			break;
+		}
+		*np = *p;
+	}
+
+	return newparam;
+}
+
 static const char *
 vmod_v4_getSignature(VRT_CTX,
 	const char* secret_key, const char* dateStamp, const char* regionName, const char* serviceName,const char* string_to_sign
@@ -76,6 +128,8 @@ vmod_v4_getSignature(VRT_CTX,
 	char key[len];
 	char *kp = key;
 	sprintf(kp,"AWS4%s",secret_key);
+	fprintf(stderr, "date: %s\nregion: %s\nservice: %s\nsigning payload:\n####\n%s\n####\n", 
+		dateStamp, regionName, serviceName, string_to_sign);
 	
 	const char *kDate    = vmod_hmac_sha256(ctx,kp,strlen(kp), dateStamp,strlen(dateStamp),true);
 	const char *kRegion  = vmod_hmac_sha256(ctx,kDate,   32, regionName,strlen(regionName),true);
@@ -122,6 +176,8 @@ void vmod_v4_generic(VRT_CTX,
 	const char *requrl;
 	struct http *hp;
 	struct gethdr_s gs;
+
+	fprintf(stderr, "\n\n\n#################### START V4_GENERIC ####################\n\n");
 	
 	if (ctx->http_bereq !=NULL && ctx->http_bereq->magic== HTTP_MAGIC){
 		//bg-thread
@@ -134,6 +190,7 @@ void vmod_v4_generic(VRT_CTX,
 	}
 	method= hp->hd[HTTP_HDR_METHOD].b;
 	requrl= hp->hd[HTTP_HDR_URL].b;
+	fprintf(stderr, "Request URL: %s\n", requrl);
 
 	////////////////
 	//create date
@@ -179,6 +236,7 @@ void vmod_v4_generic(VRT_CTX,
 	
 	////////////////
 	//create canonical headers
+	fprintf(stderr, "canonical headers:\n####\n%s\n####\n", canonical_headers);
 	len = strlen(canonical_headers) + 115;
 	// Account for addition of "x-amz-security-token:[token]\n"
 	if(tokenlen > 0) len += 22 + tokenlen;
@@ -188,6 +246,7 @@ void vmod_v4_generic(VRT_CTX,
 	} else {
 		sprintf(pcanonical_headers,"%sx-amz-content-sha256:%s\nx-amz-date:%s\n",canonical_headers,payload_hash,amzdate);
 	}
+	fprintf(stderr, "pcanonical-headers:\n####\n%s\n####\n", pcanonical_headers);
 	
 	////////////////
 	//create credential scope
@@ -204,6 +263,7 @@ void vmod_v4_generic(VRT_CTX,
 	char *ptmpform = &tmpform[0];
 
 	char *adr = strchr(requrl, (int)'?');
+	len = adr - requrl;
 	if(adr == NULL){
 		sprintf(pcanonical_request,"%s\n%s\n\n%s\n%s\n%s",
 			method,
@@ -213,7 +273,8 @@ void vmod_v4_generic(VRT_CTX,
 			payload_hash
 		);
 	}else{
-		sprintf(ptmpform,"%s.%lds\n%s","%s\n%",(adr - requrl),"%s\n%s\n%s\n%s");
+		adr = format_param_string(ctx, adr);
+		sprintf(ptmpform,"%s.%lds\n%s","%s\n%",len,"%s\n%s\n%s\n%s");
 		sprintf(pcanonical_request,ptmpform,
 			method,
 			requrl,
@@ -223,6 +284,7 @@ void vmod_v4_generic(VRT_CTX,
 			payload_hash
 		);
 	}
+	fprintf(stderr,"canonical_request:\n####\n%s\n####\n", pcanonical_request);
 	
 	
 	////////////////
@@ -246,6 +308,7 @@ void vmod_v4_generic(VRT_CTX,
 		psigned_headers,
 		signature);
 	
+	fprintf(stderr,"Authorization:\n####\n%s\n####\n", pauthorization);
 	////////////////
 	//Set to header
 	gs.what = "\016Authorization:";
