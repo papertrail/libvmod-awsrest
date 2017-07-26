@@ -88,7 +88,6 @@ format_param_string(VRT_CTX, char *param)
 	 * order (presto/hive-s3-connector) and with bare query parameters (s3cmd). 
 	 */
 
-    fprintf(stderr, "formatting param string...\n");
 	if (!param) return NULL;
 
 	// check the balance of equals vs. ampersands+question marks:
@@ -111,9 +110,6 @@ format_param_string(VRT_CTX, char *param)
 	// And lets us calculate the size of a buffer that accomodates the additional 
 	// equals signs.
 	int newlen = len + (amp - eq);
-
-    fprintf(stderr, "param string in: %s\n", param);
-	//XXX: dis be buggin' if (newlen == len) return param;
 
 	char *newparam = WS_Alloc(ctx->ws,newlen+1);
 	AN(newparam);
@@ -150,11 +146,6 @@ format_param_string(VRT_CTX, char *param)
 		}
 	}
 
-    fprintf(stderr,"Individual params:\n#####\n");
-    int j;
-    for (j = 0; j < amp; j++) fprintf(stderr,"%s\n",params[j]);
-    fprintf(stderr,"#####\n\n");
-
 	if (amp == 1) return newparam;
 
 	// Sort the params pointer array and then write out into the final
@@ -176,7 +167,6 @@ format_param_string(VRT_CTX, char *param)
 	}
 	*(--sp) = 0;
 
-    fprintf(stderr, "Sorted Parameters: %s\n", sortparam);
 	return sortparam;
 }
 
