@@ -68,13 +68,27 @@ vmod_hmac_sha256(VRT_CTX,
 	return p;
 }
 
+int
+v2scmp(const void *p1, const void *p2)
+{
+	/* stolen from the qsort(3) man page */
+	return strcmp(*(char *const *)p1, *(char *const *)p2);
+}
+
 char *
 format_param_string(VRT_CTX, char *param)
 {
-	// AWS expexts an equal sign for all parameters, whether they have a value
-	// set or not.  Some clients skip the = sign (eg, s3cmd) and it needs to be
-	// added in to get the signatures to work.
+	/* AWS expects the query parameters to be in canonical form.  From documentation
+	 * and experimentation, this seems to mean two things:
+	 *  -> Query parameters are in alphabetical order
+	 *  -> All query parameters must have an '='  If one doesn't, it needs to be 
+	 *     tacked onto the end of the parameter.
+	 * The clients I have worked with so far copy the query string into this form 
+	 * only to sign it.  The one sent over the wire has the parameters in arbitrary
+	 * order (presto/hive-s3-connector) and with bare query parameters (s3cmd). 
+	 */
 
+    fprintf(stderr, "formatting param string...\n");
 	if (!param) return NULL;
 
 	// check the balance of equals vs. ampersands+question marks:
@@ -93,31 +107,77 @@ format_param_string(VRT_CTX, char *param)
 
 	if (len <= 1) return param;
 
+	// The ampersand vs equals sign tells how many bare parameters there are
+	// And lets us calculate the size of a buffer that accomodates the additional 
+	// equals signs.
 	int newlen = len + (amp - eq);
 
-	if (newlen == len) return param;
+    fprintf(stderr, "param string in: %s\n", param);
+	//XXX: dis be buggin' if (newlen == len) return param;
 
 	char *newparam = WS_Alloc(ctx->ws,newlen+1);
 	AN(newparam);
 	char *np;
+	// amp is also the number of parameters we have, so we know how many strings 
+	// we're going to tokenize into:
+	char **params = WS_Alloc(ctx->ws,amp*sizeof(char*));
+	AN(params);
+	char **ps = params;
 
+	// Intermediate stage: add in all the extra '=' signs and tokenize by 
+	// replacing ampersands with null-terminator bytes.  Populate the 
+	// params array with pointers to each param string
 	for (eq = 0, p = param, np = newparam; 1; p++, np++) {
 		if (*p == '&') {
 			if (eq)
 				eq = 0;
 			else
 				*np++ = '=';
+			*ps++ = np + 1;
+			*np = 0;
 		} else if (*p == '=') {
 			eq++;
+			*np = *p;
+		} else if (*p == '?') {
+			*ps++ = np + 1; 
+			*np = *p;
 		} else if (!*p) {
 			if (!eq) *np++ = '=';
 			*np = *p;
 			break;
+		} else {
+			*np = *p;
 		}
-		*np = *p;
 	}
 
-	return newparam;
+    fprintf(stderr,"Individual params:\n#####\n");
+    int j;
+    for (j = 0; j < amp; j++) fprintf(stderr,"%s\n",params[j]);
+    fprintf(stderr,"#####\n\n");
+
+	if (amp == 1) return newparam;
+
+	// Sort the params pointer array and then write out into the final
+	// params buffer.  
+	qsort(params, amp, sizeof(char*), v2scmp);
+
+	char *sortparam = WS_Alloc(ctx->ws,newlen+1);
+	AN(sortparam);
+
+	int i;
+	char *sp;
+	sp = sortparam;
+	*sp++ = '?';
+	for (i = 0; i < amp; i++) {
+		for (p = params[i]; *p; p++, sp++) {
+			*sp = *p;
+		}
+		*sp++ = '&';
+	}
+	*(--sp) = 0;
+
+    fprintf(stderr, "Sorted Parameters: %s\n", sortparam);
+	return sortparam;
 }
 
 static const char *
@@ -277,6 +337,7 @@ void vmod_v4_generic(VRT_CTX,
 			payload_hash
 		);
 	}
+    fprintf(stderr,"Canonical Request:\n#####\n%s\n#####\n\n",pcanonical_request);
 	
 	
 	////////////////
